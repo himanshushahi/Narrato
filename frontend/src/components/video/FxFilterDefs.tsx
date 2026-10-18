@@ -70,6 +70,136 @@ export const FxFilterDefs: React.FC = () => (
           <feFuncB type="discrete" tableValues="0 0 0 1" />
         </feComponentTransfer>
       </filter>
+
+      {/* ── Phase 3: Broadcast LUT Color Grading Shaders ────────────────── */}
+
+      {/* LUT: Cyberpunk — crushed blacks, cyan shadow tint, magenta highlights */}
+      <filter id="fx-lut-cyberpunk" x="-20%" y="-20%" width="140%" height="140%">
+        <feColorMatrix
+          type="matrix"
+          values="
+            1.20 -0.05 -0.05 0 -0.08
+           -0.10  1.15  0.10 0 -0.05
+            0.15  0.10  1.30 0  0.02
+            0     0     0    1  0"
+        />
+        <feComponentTransfer>
+          <feFuncR type="table" tableValues="0.0 0.05 0.35 0.75 1.05" />
+          <feFuncG type="table" tableValues="0.0 0.15 0.45 0.75 0.92" />
+          <feFuncB type="table" tableValues="0.04 0.25 0.60 0.88 1.0" />
+        </feComponentTransfer>
+      </filter>
+      <filter id="lut-cyberpunk" x="-20%" y="-20%" width="140%" height="140%">
+        <feColorMatrix
+          type="matrix"
+          values="
+            1.20 -0.05 -0.05 0 -0.08
+           -0.10  1.15  0.10 0 -0.05
+            0.15  0.10  1.30 0  0.02
+            0     0     0    1  0"
+        />
+        <feComponentTransfer>
+          <feFuncR type="table" tableValues="0.0 0.05 0.35 0.75 1.05" />
+          <feFuncG type="table" tableValues="0.0 0.15 0.45 0.75 0.92" />
+          <feFuncB type="table" tableValues="0.04 0.25 0.60 0.88 1.0" />
+        </feComponentTransfer>
+      </filter>
+
+      {/* LUT: Vox Editorial — desaturated warm sepia tone with heavy grain */}
+      <filter id="fx-lut-vox-editorial" x="-20%" y="-20%" width="140%" height="140%">
+        <feColorMatrix
+          type="matrix"
+          values="
+            0.45 0.40 0.15 0 0.04
+            0.35 0.45 0.12 0 0.02
+            0.25 0.30 0.25 0 -0.02
+            0    0    0    1 0"
+          result="colorGrade"
+        />
+        <feComponentTransfer in="colorGrade" result="contrastWarm">
+          <feFuncR type="table" tableValues="0.05 0.25 0.60 0.95" />
+          <feFuncG type="table" tableValues="0.04 0.20 0.52 0.86" />
+          <feFuncB type="table" tableValues="0.02 0.14 0.40 0.72" />
+        </feComponentTransfer>
+        <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" result="rawNoise" />
+        <feColorMatrix
+          in="rawNoise"
+          type="matrix"
+          values="
+            0.33 0.33 0.33 0 0.35
+            0.33 0.33 0.33 0 0.35
+            0.33 0.33 0.33 0 0.35
+            0    0    0    0 1"
+          result="neutralGrain"
+        />
+        <feBlend mode="overlay" in="contrastWarm" in2="neutralGrain" />
+      </filter>
+      <filter id="lut-vox-editorial" x="-20%" y="-20%" width="140%" height="140%">
+        <feColorMatrix
+          type="matrix"
+          values="
+            0.45 0.40 0.15 0 0.04
+            0.35 0.45 0.12 0 0.02
+            0.25 0.30 0.25 0 -0.02
+            0    0    0    1 0"
+          result="colorGrade"
+        />
+        <feComponentTransfer in="colorGrade" result="contrastWarm">
+          <feFuncR type="table" tableValues="0.05 0.25 0.60 0.95" />
+          <feFuncG type="table" tableValues="0.04 0.20 0.52 0.86" />
+          <feFuncB type="table" tableValues="0.02 0.14 0.40 0.72" />
+        </feComponentTransfer>
+        <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" result="rawNoise" />
+        <feColorMatrix
+          in="rawNoise"
+          type="matrix"
+          values="
+            0.33 0.33 0.33 0 0.35
+            0.33 0.33 0.33 0 0.35
+            0.33 0.33 0.33 0 0.35
+            0    0    0    0 1"
+          result="neutralGrain"
+        />
+        <feBlend mode="overlay" in="contrastWarm" in2="neutralGrain" />
+      </filter>
+
+      {/* LUT: Dark Cinematic — 80% desaturation, high contrast, teal-orange split */}
+      <filter id="fx-lut-dark-cinematic" x="-20%" y="-20%" width="140%" height="140%">
+        <feColorMatrix type="saturate" values="0.25" result="desat" />
+        <feColorMatrix
+          in="desat"
+          type="matrix"
+          values="
+            1.25 -0.05 -0.10 0 -0.05
+           -0.05  1.05  0.05 0 -0.03
+           -0.10  0.10  1.30 0  0.02
+            0     0     0    1  0"
+          result="split"
+        />
+        <feComponentTransfer in="split">
+          <feFuncR type="table" tableValues="0.0 0.08 0.40 0.85 1.05" />
+          <feFuncG type="table" tableValues="0.0 0.12 0.42 0.78 0.95" />
+          <feFuncB type="table" tableValues="0.02 0.20 0.48 0.70 0.82" />
+        </feComponentTransfer>
+      </filter>
+      <filter id="lut-dark-cinematic" x="-20%" y="-20%" width="140%" height="140%">
+        <feColorMatrix type="saturate" values="0.25" result="desat" />
+        <feColorMatrix
+          in="desat"
+          type="matrix"
+          values="
+            1.25 -0.05 -0.10 0 -0.05
+           -0.05  1.05  0.05 0 -0.03
+           -0.10  0.10  1.30 0  0.02
+            0     0     0    1  0"
+          result="split"
+        />
+        <feComponentTransfer in="split">
+          <feFuncR type="table" tableValues="0.0 0.08 0.40 0.85 1.05" />
+          <feFuncG type="table" tableValues="0.0 0.12 0.42 0.78 0.95" />
+          <feFuncB type="table" tableValues="0.02 0.20 0.48 0.70 0.82" />
+        </feComponentTransfer>
+      </filter>
     </defs>
   </svg>
 );

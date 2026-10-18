@@ -4,7 +4,7 @@ import { PaperOverlay } from './PaperOverlay';
 import { KineticSubtitles } from './KineticSubtitles';
 import { GlobalOverlaysRenderer, GlobalOverlayItem } from './GlobalOverlaysRenderer';
 
-import { ASTRenderer } from './ASTRenderer';
+import { ASTRenderer, resolveLutForStyle } from './ASTRenderer';
 import { calculateSubVisualTimings } from '../../utils/duration';
 import { getCanvasScaleFactor } from './compositionScale';
 import { QualityMode, QualityPolicy } from './renderQuality';
@@ -657,10 +657,17 @@ export const NitishRajputComposition: React.FC<Props> = ({
   // Helper to render a single sub-visual's content
   const renderSubVisual = useCallback((subVis: SubVisual) => {
     if (subVis.composition) {
-      return <ASTRenderer composition={subVis.composition} qualityMode={qualityMode} quality={quality} />;
+      return (
+        <ASTRenderer
+          composition={subVis.composition}
+          qualityMode={qualityMode}
+          quality={quality}
+          defaultLut={resolveLutForStyle(style)}
+        />
+      );
     }
     return null;
-  }, [qualityMode, quality]);
+  }, [qualityMode, quality, style]);
 
   // ── Time-window virtualization ──────────────────────────────────────────────
   // Pre-calculate and memoize the timeline tree once; per-frame virtualization

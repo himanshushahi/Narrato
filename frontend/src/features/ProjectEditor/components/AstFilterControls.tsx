@@ -204,6 +204,24 @@ const FILTER_PRESETS: FilterPresetDef[] = [
     icon: Radio,
     filters: ['url(#fx-thermal)'],
   },
+  {
+    label: 'LUT Cyberpunk',
+    category: 'svg',
+    icon: Cpu,
+    filters: ['url(#fx-lut-cyberpunk)'],
+  },
+  {
+    label: 'LUT Vox Editorial',
+    category: 'svg',
+    icon: Film,
+    filters: ['url(#fx-lut-vox-editorial)'],
+  },
+  {
+    label: 'LUT Dark Cinematic',
+    category: 'svg',
+    icon: Clapperboard,
+    filters: ['url(#fx-lut-dark-cinematic)'],
+  },
 ];
 
 const AstFilterControlsInner: React.FC<AstFilterControlsProps> = ({

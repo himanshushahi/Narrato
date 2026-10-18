@@ -599,9 +599,9 @@ This roadmap is organized into 4 logical phases, prioritized by immediate visual
 - [ ] **Step 2.3**: Update `backend/skills/shared/visual-director/SKILL.md` with the 25-Archetype Selection Guide.
 
 #### Phase 3: Asset Cinematography & Color Shaders (Days 8–10)
-- [ ] **Step 3.1**: Enhance `backend/pipeline/assets.py` with cinematography style prompt modifiers.
-- [ ] **Step 3.2**: Expand `frontend/src/components/video/FxFilterDefs.tsx` with unified documentary LUT shaders (`lut-cyberpunk`, `lut-vox-editorial`, `lut-dark-cinematic`).
-- [ ] **Step 3.3**: Ensure `ASTRenderer.tsx` applies the project's default LUT shader to all background Video/Image layers.
+- [x] **Step 3.1**: Enhance `backend/pipeline/assets.py` with cinematography style prompt modifiers.
+- [x] **Step 3.2**: Expand `frontend/src/components/video/FxFilterDefs.tsx` with unified documentary LUT shaders (`lut-cyberpunk`, `lut-vox-editorial`, `lut-dark-cinematic`).
+- [x] **Step 3.3**: Ensure `ASTRenderer.tsx` applies the project's default LUT shader to all background Video/Image layers.
 
 #### Phase 4: Audio-Motion SFX Binding (Days 11–14)
 - [ ] **Step 4.1**: Ingest 25 curated UI/motion SFX audio files into `backend/assets/sfx/`.

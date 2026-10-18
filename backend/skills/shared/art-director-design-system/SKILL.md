@@ -21,7 +21,7 @@ exposure: agent
 
 | Field | Sub-Property | Type | Required | Description & Standard Defaults |
 |---|---|---|---|---|
-| `theme_name` | — | `string` | Yes | Novel 2–4 word aesthetic title YOU INVENT for this topic (never reuse suggestion-list names or past outputs). |
+| `theme_name` | — | `string` | Yes | Novel 2–4 word aesthetic title YOU INVENT for this topic. Automatically drives downstream asset cinematography modifiers and in-engine color LUT shaders (e.g. cyber/tech → `lut_cyberpunk`, doc/history/vox → `lut_vox_editorial`, cinematic → `lut_dark_cinematic`). |
 | `color_palette` | `background` | `string (hex)` | Yes | Canvas base YOU INVENT per the assigned variety direction (dark, light, or mid-tone — any `#RRGGBB` with strong text contrast). |
 | | `primary` | `string (hex)` | Yes | High-contrast brand anchor YOU INVENT (any saturated `#RRGGBB`, never a spec-example copy). |
 | | `secondary` | `string (hex)` | Yes | Complementary tone YOU INVENT (distinct hue family from primary). |

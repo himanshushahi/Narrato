@@ -214,6 +214,6 @@ export function getMotionState(opts: {
   return { hasMotion, shutterDisabled: false };
 }
 
-/** True for SVG-filter look tokens (emboss / sharpen / posterize / duotones / thermal). */
+/** True for SVG-filter look tokens (emboss / sharpen / posterize / duotones / thermal / LUTs). */
 export const isSvgLookToken = (filter: string): boolean =>
-  /url\s*\(\s*#fx-/i.test(String(filter ?? ''));
+  /url\s*\(\s*#(?:fx-|lut-)/i.test(String(filter ?? ''));

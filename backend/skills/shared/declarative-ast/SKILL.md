@@ -19,8 +19,8 @@ exposure: agent
 MANDATORY CONTENT.TYPE: Every Layer MUST have content.type (Text, Counter, Shape, Chart, Background, Image, Video, HTML, Particles, Map, Lottie).
 GEOMETRY SOT: style lives inside content as content.style with % strings.
 STACKING: children[0]=bottom background canvas, children[N-1]=top foreground.
-MEDIA QUERIES: Image and Video layers require 1-3 targeted English keywords.
-DETERMINISTIC POLISH: The compiler auto-injects dark vignettes over footage, Ken Burns drift on static images, safe-area bounds, and clamps frame-0 delays.
+MEDIA QUERIES: Image and Video layers require 1-3 targeted English keywords (auto-enriched with cinematography modifiers).
+DETERMINISTIC POLISH: The compiler auto-injects dark vignettes over footage, Ken Burns drift on static images, safe-area bounds, clamps frame-0 delays, and auto-applies broadcast color LUT shaders to unstyled background media.
 DESIGN BINDING: Bind colors and typography to active design.json tokens.
 ```
 
@@ -156,7 +156,10 @@ A cut is a JSON object with `duration`, `transition`, and a `composition` contai
 - `floating: true`: Organic harmonic bobbing motion.
 - `motion_blur: true` + `shutter_angle: 180`: Shutter motion blur on spatial transitions.
 - `camera_shake`: `"handheld"` (subtle doc breath), `"shockwave"` (screen impact), `"glitch"`.
-- `filters`: Presets (`["noir_hard"]`, `["cyberpunk"]`, `["golden_hour"]`, `["cinematic_dark_base"]`) or CSS tokens (`["backdrop-filter: blur(16px)"]`).
+- `filters`:
+  * **Broadcast LUT Shaders**: `["lut_cyberpunk"]` (crushed blacks, cyan shadows, magenta highlights), `["lut_vox_editorial"]` (desaturated sepia tone, paper grain), `["lut_dark_cinematic"]` (80% desat, high contrast teal-orange split). Background media automatically inherits the project's LUT shader.
+  * **Classic Look Presets**: `["cinematic_dark_base"]`, `["noir_hard"]`, `["golden_hour"]`, `["archival_monochrome"]`, `["vintage_sepia"]`, `["vibrant_tech_glow"]`, `["midnight_duotone"]`, `["inferno_duotone"]`, `["thermal_x_ray"]`.
+  * **CSS Tokens**: `["backdrop-filter: blur(16px) contrast(1.05)"]`, `["mix-blend-mode: overlay"]`.
 
 ---
 

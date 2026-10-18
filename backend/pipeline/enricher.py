@@ -10,6 +10,9 @@ minimal or raw AST cuts before validation and database persistence:
    on static Image or Background layers so frames are never frozen.
 4. Safe-Zone Geometry Enforcement: Clamps coordinate percentages to portrait/landscape
    safe zones to prevent collisions with mobile UI overlays and subtitles.
+5. In-Engine LUT Color Grading: Auto-applies project's SVG color LUT shader
+   (lut-cyberpunk, lut-vox-editorial, lut-dark-cinematic) to background media
+   for broadcast-grade color consistency.
 """
 from __future__ import annotations
 
@@ -342,8 +345,86 @@ def enforce_safe_areas(cut: Dict[str, Any], video_format: str = "landscape") -> 
     return adjusted_count
 
 
+def resolve_lut_for_style(style_hint: str = "", design_tokens: Optional[Dict[str, Any]] = None) -> str:
+    """Resolve canonical SVG LUT shader token for a given style hint or design system.
+
+    Returns one of:
+      - 'url(#fx-lut-cyberpunk)'
+      - 'url(#fx-lut-vox-editorial)'
+      - 'url(#fx-lut-dark-cinematic)'
+    """
+    hint = str(style_hint or "").lower().strip()
+    if not hint and isinstance(design_tokens, dict):
+        hint = str(design_tokens.get("theme_name") or design_tokens.get("style_hint") or "").lower().strip()
+
+    if any(k in hint for k in ("cyber", "tech", "hacker", "future", "matrix", "neon", "crypto")):
+        return "url(#fx-lut-cyberpunk)"
+    if any(k in hint for k in ("doc", "history", "historical", "archive", "archival", "vintage", "retro", "sepia", "vox", "editorial", "paper")):
+        return "url(#fx-lut-vox-editorial)"
+    return "url(#fx-lut-dark-cinematic)"
+
+
+def inject_auto_lut(cut: Dict[str, Any], design_tokens: Optional[Dict[str, Any]] = None,
+                    style_hint: str = "") -> int:
+    """Auto-apply project's LUT color grading shader to unstyled background Video/Image layers.
+
+    Ensures heterogeneous stock assets inherit a unified broadcast color grade.
+    If a layer already specifies explicit filters (LUT, duotone, or custom color grade),
+    it is preserved (idempotent).
+    Returns: Number of layers graded.
+    """
+    if not isinstance(cut, dict):
+        return 0
+    comp = cut.get("composition")
+    if not isinstance(comp, dict):
+        return 0
+    children = comp.get("children")
+    if not isinstance(children, list) or not children:
+        return 0
+
+    lut_token = resolve_lut_for_style(style_hint=style_hint, design_tokens=design_tokens)
+    graded_count = 0
+
+    for layer in children:
+        if not isinstance(layer, dict):
+            continue
+        content = layer.get("content")
+        if not isinstance(content, dict):
+            continue
+        ctype = content.get("type")
+        if ctype not in ("Image", "Video"):
+            continue
+
+        # Skip cutout stickers / illustrations
+        if content.get("image_type") == "illustration":
+            continue
+
+        raw_filters = layer.get("filters")
+        if raw_filters is None:
+            filters: List[Any] = []
+            layer["filters"] = filters
+        elif isinstance(raw_filters, list):
+            filters = raw_filters
+        else:
+            filters = [raw_filters]
+            layer["filters"] = filters
+
+        # Check if already has a LUT, duotone, or explicit color grade
+        filter_str = " ".join(str(f) for f in filters).lower()
+        if any(tok in filter_str for tok in (
+            "lut", "duotone", "grayscale", "sepia", "thermal", "noir",
+            "url(#fx-lut", "url(#lut-", "brightness", "contrast", "hue-rotate", "saturate",
+        )):
+            continue
+
+        filters.append(lut_token)
+        graded_count += 1
+
+    return graded_count
+
+
 def enrich_cut(cut: Dict[str, Any], design_tokens: Optional[Dict[str, Any]] = None,
-               video_format: str = "landscape") -> List[str]:
+               video_format: str = "landscape", style_hint: str = "") -> List[str]:
     """Apply all deterministic enrichment middleware rules to a single cut in place.
 
     Returns a list of human-readable diagnostic notes.
@@ -372,12 +453,19 @@ def enrich_cut(cut: Dict[str, Any], design_tokens: Optional[Dict[str, Any]] = No
     if safe_zoned:
         notes.append(f"enforced safe-area geometry ({video_format}) on {safe_zoned} layer(s)")
 
+    # 5. Broadcast In-Engine LUT Color Shader
+    graded = inject_auto_lut(cut, design_tokens=design_tokens, style_hint=style_hint)
+    if graded:
+        lut_token = resolve_lut_for_style(style_hint=style_hint, design_tokens=design_tokens)
+        notes.append(f"applied broadcast LUT shader ({lut_token}) on {graded} media layer(s)")
+
     return notes
 
 
 def enrich_sub_visuals(sub_visuals: List[Dict[str, Any]],
                        design_tokens: Optional[Dict[str, Any]] = None,
-                       video_format: str = "landscape") -> Tuple[List[Dict[str, Any]], List[str]]:
+                       video_format: str = "landscape",
+                       style_hint: str = "") -> Tuple[List[Dict[str, Any]], List[str]]:
     """Enrich an entire list of AST sub-visual cuts.
 
     Runs in-place on the provided cuts and returns (cuts, list_of_all_notes).
@@ -389,7 +477,7 @@ def enrich_sub_visuals(sub_visuals: List[Dict[str, Any]],
     for idx, cut in enumerate(sub_visuals):
         if not isinstance(cut, dict):
             continue
-        cut_notes = enrich_cut(cut, design_tokens=design_tokens, video_format=video_format)
+        cut_notes = enrich_cut(cut, design_tokens=design_tokens, video_format=video_format, style_hint=style_hint)
         for n in cut_notes:
             all_notes.append(f"cut#{idx}: {n}")
 

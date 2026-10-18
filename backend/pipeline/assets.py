@@ -725,6 +725,52 @@ def sync_visual_durations_after_voiceover(project_dir):
         logger.warning(f"Duration resync write-back failed: {e}")
     return rescaled
 
+CINEMATOGRAPHY_STYLE_MODIFIERS = {
+    "dark_cyber": "dark background isolated close up cinematic 4k no people",
+    "documentary": "historical archival monochrome 35mm grain vintage",
+    "finance": "modern glass skyscraper abstract financial data dark navy",
+    "cinematic": "cinematic 4k high contrast dramatic lighting",
+}
+
+
+def resolve_style_modifier(style_hint: str = "") -> str:
+    """Return appropriate cinematography modifier string based on style hint."""
+    hint = str(style_hint or "").lower().strip()
+    if not hint:
+        return ""
+    if any(k in hint for k in ("cyber", "tech", "hacker", "dark", "matrix", "crypto")):
+        return CINEMATOGRAPHY_STYLE_MODIFIERS["dark_cyber"]
+    if any(k in hint for k in ("doc", "history", "historical", "archive", "archival", "vintage", "retro", "sepia")):
+        return CINEMATOGRAPHY_STYLE_MODIFIERS["documentary"]
+    if any(k in hint for k in ("finance", "corp", "business", "money", "market", "economy", "bank")):
+        return CINEMATOGRAPHY_STYLE_MODIFIERS["finance"]
+    return CINEMATOGRAPHY_STYLE_MODIFIERS["cinematic"]
+
+
+def inject_cinematography_query(query: str, style_hint: str = "", source: str = "pexels") -> str:
+    """Inject cinematography keywords for stock providers (Pexels, Pixabay).
+
+    Bypasses exact-entity providers like Wikipedia, YouTube, or direct URLs.
+    Avoids duplicating keywords already present in the query.
+    """
+    if not query or not isinstance(query, str):
+        return query
+    src = str(source or "").lower().strip()
+    if src in ("wikipedia", "youtube") or query.startswith("http://") or query.startswith("https://"):
+        return query
+
+    modifier = resolve_style_modifier(style_hint)
+    if not modifier:
+        return query
+
+    # Only append keywords that aren't already in the query
+    q_words = set(query.lower().split())
+    mod_tokens = [w for w in modifier.split() if w.lower() not in q_words]
+    if not mod_tokens:
+        return query
+
+    return f"{query.strip()} {' '.join(mod_tokens)}"
+
 
 def _resolve_pexels_orientation(video_format=None):
     """Resolve Pexels preferred and fallback orientations from a video format string.
@@ -1632,7 +1678,7 @@ def _save_asset_url_to_layer(asset_url, layer, assets_dir, seg_idx, sub_idx, lay
     return False
 
 
-def _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_key, pixabay_api_key, cancel_event, video_format):
+def _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_key, pixabay_api_key, cancel_event, video_format, style_hint=""):
     """Downloads media for a single AST layer if it is Image or Video."""
     if not isinstance(layer, dict):
         return layer
@@ -1682,46 +1728,73 @@ def _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_k
     
     if not query:
         return layer
+
+    layer_style_hint = content.get("style_hint") or style_hint or ""
+    search_q = inject_cinematography_query(query, style_hint=layer_style_hint, source=source)
         
     asset_url = None
 
-    logger.info(f"Layer [{seg_idx}:{sub_idx}:{layer_idx}] AST search: '{query}' (source: {source}, type: {content_type})")
+    logger.info(f"Layer [{seg_idx}:{sub_idx}:{layer_idx}] AST search: '{search_q}' (raw: '{query}', source: {source}, type: {content_type})")
+
+    def _do_search_pexels(q, is_video=False):
+        if is_video:
+            res = search_pexels_video(q, api_key, video_format)
+            if not res and q != query:
+                res = search_pexels_video(query, api_key, video_format)
+            return res
+        else:
+            res = search_pexels_photo(q, api_key, video_format)
+            if not res and q != query:
+                res = search_pexels_photo(query, api_key, video_format)
+            return res
+
+    def _do_search_pixabay(q, is_video=False, image_type="all"):
+        if is_video:
+            res = search_pixabay_video(q, pixabay_api_key, video_format)
+            if not res and q != query:
+                res = search_pixabay_video(query, pixabay_api_key, video_format)
+            return res
+        else:
+            res = search_pixabay_photo(q, pixabay_api_key, video_format, image_type=image_type)
+            if not res and q != query:
+                res = search_pixabay_photo(query, pixabay_api_key, video_format, image_type=image_type)
+            return res
 
     if source == "wikipedia" and content_type == "Image":
         asset_url = search_wikipedia_image(query)
         if not asset_url and api_key:
             logger.info("Wikipedia failed, falling back to Pexels.")
-            asset_url = search_pexels_photo(query, api_key, video_format)
+            asset_url = _do_search_pexels(query, is_video=False)
 
     elif source == "pixabay":
         if not pixabay_api_key:
             logger.warning("Pixabay API key missing, falling back to Pexels.")
             if content_type == "Video":
-                asset_url = search_pexels_video(query, api_key, video_format) if api_key else None
+                asset_url = _do_search_pexels(search_q, is_video=True) if api_key else None
             else:
-                asset_url = search_pexels_photo(query, api_key, video_format) if api_key else None
+                asset_url = _do_search_pexels(search_q, is_video=False) if api_key else None
         else:
             if content_type == "Video":
-                asset_url = search_pixabay_video(query, pixabay_api_key, video_format)
+                asset_url = _do_search_pixabay(search_q, is_video=True)
             else:
                 # Pass through image_type if the LLM set it on the layer (e.g. "illustration"
                 # for transparent-background PNG cutouts)
                 pixabay_image_type = content.get("image_type", "all")
-                asset_url = search_pixabay_photo(query, pixabay_api_key, video_format, image_type=pixabay_image_type)
+                asset_url = _do_search_pixabay(search_q, is_video=False, image_type=pixabay_image_type)
 
             # fallback to pexels
             if not asset_url and api_key:
                 logger.info("Pixabay failed, falling back to Pexels.")
                 if content_type == "Video":
-                    asset_url = search_pexels_video(query, api_key, video_format)
+                    asset_url = _do_search_pexels(search_q, is_video=True)
                 else:
-                    asset_url = search_pexels_photo(query, api_key, video_format)
+                    asset_url = _do_search_pexels(search_q, is_video=False)
 
     elif source == "youtube":
         if content_type != "Video":
             # YouTube makes no sense for Image layers; fall back to Pexels photo.
             logger.warning("source='youtube' used on a non-Video layer — falling back to Pexels photo.")
-            asset_url = search_pexels_photo(query, api_key, video_format) if api_key else None
+            asset_url = _do_search_pexels(query, is_video=False) if api_key else None
         else:
             start_offset = int(content.get("yt_start_offset") or 15)
             yt_duration = min(int(content.get("yt_duration") or 15), 30)  # cap at 30s
@@ -1743,48 +1816,45 @@ def _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_k
                 return layer  # local_path already set, skip the URL download path
             else:
                 logger.warning(f"YouTube download failed for '{query}', falling back to Pexels video.")
-                asset_url = search_pexels_video(query, api_key, video_format) if api_key else None
+                asset_url = _do_search_pexels(search_q, is_video=True) if api_key else None
 
     elif source == "archive":
         if content_type == "Video":
             asset_url = search_archive_video(query, video_format)
             if not asset_url and api_key:
                 logger.info(f"Archive.org video search returned no match for '{query}', falling back to Pexels.")
-                asset_url = search_pexels_video(query, api_key, video_format)
+                asset_url = _do_search_pexels(search_q, is_video=True)
         else:
             asset_url = search_archive_photo(query, video_format)
             if not asset_url and api_key:
                 logger.info(f"Archive.org photo search returned no match for '{query}', falling back to Pexels.")
-                asset_url = search_pexels_photo(query, api_key, video_format)
+                asset_url = _do_search_pexels(search_q, is_video=False)
 
     else:
         # Default to pexels
         if content_type == "Video" and api_key:
-            asset_url = search_pexels_video(query, api_key, video_format)
+            asset_url = _do_search_pexels(search_q, is_video=True)
         elif api_key:
-            asset_url = search_pexels_photo(query, api_key, video_format)
+            asset_url = _do_search_pexels(search_q, is_video=False)
 
     if asset_url:
         _save_asset_url_to_layer(asset_url, layer, assets_dir, seg_idx, sub_idx, layer_idx, cancel_event)
     else:
         # ── Cross-provider last-resort fallback ────────────────────────
-        # The primary source (and its in-branch fallback) returned nothing.
-        # Try the other stock provider to maximise the chance of getting
-        # *some* visual rather than leaving the layer empty.
         tried_pexels = source in ("pexels", "wikipedia", "youtube", "archive")
         tried_pixabay = source == "pixabay"
         if not tried_pixabay and pixabay_api_key:
             logger.info(f"Layer [{seg_idx}:{sub_idx}:{layer_idx}] primary source '{source}' returned nothing — trying Pixabay last-resort.")
             if content_type == "Video":
-                asset_url = search_pixabay_video(query, pixabay_api_key, video_format)
+                asset_url = _do_search_pixabay(search_q, is_video=True)
             else:
-                asset_url = search_pixabay_photo(query, pixabay_api_key, video_format)
+                asset_url = _do_search_pixabay(search_q, is_video=False)
         elif not tried_pexels and api_key:
             logger.info(f"Layer [{seg_idx}:{sub_idx}:{layer_idx}] primary source '{source}' returned nothing — trying Pexels last-resort.")
             if content_type == "Video":
-                asset_url = search_pexels_video(query, api_key, video_format)
+                asset_url = _do_search_pexels(search_q, is_video=True)
             else:
-                asset_url = search_pexels_photo(query, api_key, video_format)
+                asset_url = _do_search_pexels(search_q, is_video=False)
 
         if asset_url:
             _save_asset_url_to_layer(asset_url, layer, assets_dir, seg_idx, sub_idx, layer_idx, cancel_event)
@@ -1798,7 +1868,7 @@ def _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_k
     return layer
 
 
-def _fetch_ast_assets_for_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, pixabay_api_key, cancel_event, video_format):
+def _fetch_ast_assets_for_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, pixabay_api_key, cancel_event, video_format, style_hint=""):
     """Traverses the AST composition and downloads required media for Image/Video layers."""
     if not isinstance(sub_visual, dict):
         logger.warning(
@@ -1834,7 +1904,7 @@ def _fetch_ast_assets_for_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, a
                 continue
             # If it's a Layer containing content, fetch asset
             if "content" in layer:
-                _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_key, pixabay_api_key, cancel_event, video_format)
+                _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_key, pixabay_api_key, cancel_event, video_format, style_hint=style_hint)
         if skipped:
             logger.warning(
                 f"Sub-visual [{seg_idx}:{sub_idx}] skipped {skipped} non-layer "
@@ -1932,6 +2002,21 @@ def fetch_assets_pipeline(project_dict, project_dir, progress_cb, cancel_event):
 
     progress_cb(10.0, "Starting AST visual assets download...")
 
+    style_hint = (
+        project_dict.get("style_hint")
+        or project_dict.get("prompt")
+        or ""
+    )
+    if not style_hint:
+        design_path = project_dir / "design.json"
+        if design_path.exists():
+            try:
+                with open(design_path, "r", encoding="utf-8") as _df:
+                    _ddata = json.load(_df)
+                    style_hint = _ddata.get("theme_name") or ""
+            except Exception:
+                pass
+
     # 1. Fetch visual assets for each AST sequence
     for idx, segment in enumerate(manifest):
         if cancel_event.is_set():
@@ -1945,7 +2030,17 @@ def fetch_assets_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             if cancel_event.is_set():
                 raise InterruptedError("Cancelled")
 
-            _fetch_ast_assets_for_sub_visual(sub_visual, assets_dir, idx, sub_idx, api_key, pixabay_api_key, cancel_event, video_format=project_dict.get("video_format", "landscape"))
+            _fetch_ast_assets_for_sub_visual(
+                sub_visual,
+                assets_dir,
+                idx,
+                sub_idx,
+                api_key,
+                pixabay_api_key,
+                cancel_event,
+                video_format=project_dict.get("video_format", "landscape"),
+                style_hint=style_hint,
+            )
 
             completed_sub_visuals += 1
             progress_cb(
@@ -2080,9 +2175,34 @@ def fetch_single_scene_asset(project_id, manifest_scene_index, sub_visual_index)
     assets_dir.mkdir(parents=True, exist_ok=True)
 
     # Fetch AST assets
+    style_hint = (
+        project.get("style_hint")
+        or project.get("prompt")
+        or ""
+    )
+    if not style_hint:
+        design_path = project_dir / "design.json"
+        if design_path.exists():
+            try:
+                with open(design_path, "r", encoding="utf-8") as _df:
+                    _ddata = json.load(_df)
+                    style_hint = _ddata.get("theme_name") or ""
+            except Exception:
+                pass
+
     api_key = get_setting("pexels_api_key")
     pixabay_api_key = get_setting("pixabay_api_key")
-    _fetch_ast_assets_for_sub_visual(sub_visual, assets_dir, manifest_scene_index, sub_visual_index, api_key, pixabay_api_key, cancel_event=None, video_format=project.get("video_format", "landscape"))
+    _fetch_ast_assets_for_sub_visual(
+        sub_visual,
+        assets_dir,
+        manifest_scene_index,
+        sub_visual_index,
+        api_key,
+        pixabay_api_key,
+        cancel_event=None,
+        video_format=project.get("video_format", "landscape"),
+        style_hint=style_hint,
+    )
 
     # Write back the updated manifest
     sub_visuals[sub_visual_index] = sub_visual

@@ -36,8 +36,16 @@ Pull looks from `visual-style-library` (50 styles across 5 families: editorial, 
   - `base` = Layer 0 (background/texture)
   - `hero` = Layer 2 (main visual/data/media)
   - `text` = Layer 3 (keyword stagger/headline)
-  - `filters` = layer filters (e.g. `noir_hard`, `paper_grain`, `cyberpunk`)
+  - `filters` = layer filters (e.g. `lut_dark_cinematic`, `lut_cyberpunk`, `lut_vox_editorial`, `noir_hard`, `golden_hour`)
   - `transitions` = cut transition family
+- **Broadcast LUT Shaders**:
+  - `lut_cyberpunk`: Cyan shadow tint, crushed blacks, magenta highlights (ideal for tech, crypto, cyber).
+  - `lut_vox_editorial`: Warm desaturated sepia with tactile archival paper grain (ideal for doc, history, news).
+  - `lut_dark_cinematic`: 80% desaturation, deep contrast, teal-orange split (broadcast default).
+  - Background media without filters automatically inherits the project's LUT shader.
+- **Cinematography Stock Queries**:
+  - Keep Image/Video queries to 1-3 targeted English keywords (e.g. `"server room"`, `"stock chart"`).
+  - Stock providers (Pexels, Pixabay) automatically receive style-biased cinematography modifiers (4K, dramatic contrast, dark isolated backgrounds).
 - **Tokens**: Bind style colors/fonts to `design.json` tokens (`primary`, `secondary`, `accent`, `heading_font`, `body_font`) — never invent disconnected hex colors.
 - **Querying**: Use `get_skill('visual-style-library', section='<slug_or_family>')` (e.g. section='cybersecurity-hud' or section='tech') to inspect the exact layer recipe and transition family.
 

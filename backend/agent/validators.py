@@ -723,6 +723,13 @@ FILTER_PRESETS = {
     "midnight_duotone": ["url(#fx-duotone-midnight)"],
     "inferno_duotone": ["url(#fx-duotone-inferno)"],
     "thermal_x_ray": ["url(#fx-thermal)"],
+    # ── Phase 3: Broadcast LUT color grading shaders ──────────────────
+    "lut_cyberpunk": ["url(#fx-lut-cyberpunk)"],
+    "lut-cyberpunk": ["url(#fx-lut-cyberpunk)"],
+    "lut_vox_editorial": ["url(#fx-lut-vox-editorial)"],
+    "lut-vox-editorial": ["url(#fx-lut-vox-editorial)"],
+    "lut_dark_cinematic": ["url(#fx-lut-dark-cinematic)"],
+    "lut-dark-cinematic": ["url(#fx-lut-dark-cinematic)"],
 }
 
 

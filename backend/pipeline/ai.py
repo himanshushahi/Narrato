@@ -1951,6 +1951,7 @@ def _visual_rules_safety_net(video_format: str, language: str) -> str:
 - Design for the {video_format} orientation (landscape 16:9, portrait 9:16) using responsive % widths where applicable.
 - SUBTITLE SAFE AREA ({video_format}): The bottom {safe_bottom_pct} is reserved for kinetic captions. Place lower-third text above {text_bottom_limit} or align to top/center.
 - LAYER ORDER (capability): stacking = children array order, children[0]=bottom ... children[N-1]=top. Any types, any count. Compose each cut to serve its beat.
+- COLOR LUT SHADERS & CINEMATOGRAPHY: Background footage automatically receives the project's broadcast LUT shader (`lut_cyberpunk`, `lut_vox_editorial`, `lut_dark_cinematic`). You can also explicitly specify `filters: ["lut_cyberpunk"]` (or other presets) on any layer. Stock queries automatically receive 4K cinematography style modifiers.
 
 === NO STATIC CHAPTER TITLE CARDS IN SUB-VISUALS ===
 Do NOT create static chapter title badges, scene name cards, or temporary header pills inside sub-visual cuts. Chapter indicators and video branding are managed continuously at the root composition level. Dedicate sub-visual cuts entirely to motion graphics, infographics, evidence mockups, b-roll, and visual storytelling.

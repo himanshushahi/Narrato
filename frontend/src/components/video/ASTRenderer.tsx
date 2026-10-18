@@ -310,7 +310,26 @@ const AST_FILTER_PRESET_MAP: Readonly<Record<string, string>> = {
   midnight_duotone: 'url(#fx-duotone-midnight)',
   inferno_duotone: 'url(#fx-duotone-inferno)',
   thermal_x_ray: 'url(#fx-thermal)',
+  // ── Phase 3: Broadcast LUT color grading presets ────────────────────
+  lut_cyberpunk: 'url(#fx-lut-cyberpunk)',
+  'lut-cyberpunk': 'url(#fx-lut-cyberpunk)',
+  lut_vox_editorial: 'url(#fx-lut-vox-editorial)',
+  'lut-vox-editorial': 'url(#fx-lut-vox-editorial)',
+  lut_dark_cinematic: 'url(#fx-lut-dark-cinematic)',
+  'lut-dark-cinematic': 'url(#fx-lut-dark-cinematic)',
 };
+
+/** Resolves canonical SVG LUT shader token for a given style hint or genre name. */
+export function resolveLutForStyle(styleName?: string): string {
+  const s = String(styleName || '').toLowerCase().trim();
+  if (s.includes('cyber') || s.includes('tech') || s.includes('matrix') || s.includes('crypto') || s.includes('neon')) {
+    return 'url(#fx-lut-cyberpunk)';
+  }
+  if (s.includes('doc') || s.includes('history') || s.includes('archive') || s.includes('vintage') || s.includes('vox') || s.includes('editorial') || s.includes('paper')) {
+    return 'url(#fx-lut-vox-editorial)';
+  }
+  return 'url(#fx-lut-dark-cinematic)';
+}
 
 /**
  * Extracts mix-blend-mode from filters array (it's a CSS property, not a filter)
@@ -318,7 +337,8 @@ const AST_FILTER_PRESET_MAP: Readonly<Record<string, string>> = {
  */
 function parseFilters(
   filters?: (string | Record<string, any>)[],
-  directBlur?: number | string
+  directBlur?: number | string,
+  autoLut?: string
 ): {
   filterStyle?: string;
   blendStyle: React.CSSProperties;
@@ -422,6 +442,18 @@ function parseFilters(
       const clamped = Math.min(50, n);
       realFilters.push(`blur(${clamped}px)`);
       contentBlurPx = clamped;
+    }
+  }
+
+  // Phase 3 In-Engine LUT Auto-Application:
+  // If this is an unstyled background media layer (realFilters has no LUT/duotone/color grade),
+  // automatically inherit the project's default LUT shader.
+  if (autoLut) {
+    const hasExistingGrade = realFilters.some((f) =>
+      /url\s*\(\s*#(?:fx-|lut-)|brightness|contrast|grayscale|sepia|hue-rotate|saturate/i.test(f)
+    );
+    if (!hasExistingGrade) {
+      realFilters.push(autoLut);
     }
   }
 
@@ -565,16 +597,20 @@ const ASTLayerView: React.FC<{
   mode: QualityMode;
   policy: QualityPolicy;
   glassCap: number;
-}> = React.memo(({ layer, idx, zIndex, mode, policy, glassCap }) => {
+  defaultLut?: string;
+}> = React.memo(({ layer, idx, zIndex, mode, policy, glassCap, defaultLut }) => {
         const { content, animations, filters } = layer;
+        const isMediaBackground = (content.type === 'Video' || content.type === 'Image') &&
+          (content as any).image_type !== 'illustration';
+        const autoLut = isMediaBackground && defaultLut ? defaultLut : undefined;
         const contentStyle = (content as any).style as React.CSSProperties | undefined;
         const { containerStyle: layoutStyle, contentStyle: innerStyle } = React.useMemo(
           () => splitStyles(contentStyle),
           [contentStyle]
         );
         const { filterStyle, blendStyle, backdropFilterStyle, contentBlurPx } = React.useMemo(
-          () => parseFilters(filters, (contentStyle as any)?.blur),
-          [filters, (contentStyle as any)?.blur]
+          () => parseFilters(filters, (contentStyle as any)?.blur, autoLut),
+          [filters, (contentStyle as any)?.blur, autoLut]
         );
 
         // Check if this layer has custom positioning (not fullscreen).
@@ -989,7 +1025,8 @@ const ASTRendererInner: React.FC<{
   composition: { type: 'Sequence'; children: ASTLayer[] };
   qualityMode?: QualityMode;
   quality?: QualityPolicy | unknown;
-}> = ({ composition, qualityMode, quality: qualityInput }) => {
+  defaultLut?: string;
+}> = ({ composition, qualityMode, quality: qualityInput, defaultLut }) => {
   // Hooks above any early return: the same mounted cut can go from a valid
   // composition to null (asset reload / cut delete) and back while preview
   // stays mounted — returning before useMemo would throw "Rendered fewer
@@ -1025,6 +1062,7 @@ const ASTRendererInner: React.FC<{
             mode={mode}
             policy={policy}
             glassCap={glassCap}
+            defaultLut={defaultLut}
           />
         )
       ))}
@@ -1036,6 +1074,7 @@ export const ASTRenderer: React.FC<{
   composition: { type: 'Sequence'; children: ASTLayer[] };
   qualityMode?: QualityMode;
   quality?: QualityPolicy | unknown;
+  defaultLut?: string;
 }> = React.memo(ASTRendererInner);
 (ASTRenderer as any).displayName = 'ASTRenderer';
 

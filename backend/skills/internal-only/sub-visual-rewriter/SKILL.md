@@ -60,6 +60,7 @@ exposure: internal
 | `archive` | ✓ | ✓ | Historical, NASA, archival |
 
 **NEVER emit**: `url`, `local_path`, `sources[]` — output `query` + `source` only.
+- **Cinematography & LUTs**: Keep stock queries to 1-3 English keywords (pipeline injects cinematography modifiers automatically). Background media without filters automatically inherits the project's LUT shader (`lut_cyberpunk`, `lut_vox_editorial`, `lut_dark_cinematic`). Custom filters may be set explicitly.
 
 ---
 
