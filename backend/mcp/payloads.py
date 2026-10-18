@@ -2432,6 +2432,27 @@ def save_visuals_payload(project_id: str, section_type: str,
                                         "adapt its shape to your beat and resubmit."},
                         "auto_fixed": auto_fixed,
                         "dry_run": bool(dry_run), "persisted": False}
+    # Phase 0.5 AUTO-ENRICHER (Deterministic Polish Middleware):
+    # Injects auto-vignettes over footage, Ken Burns ambient drift, clamps frame-0 delays,
+    # and enforces safe areas deterministically before validation and persistence.
+    try:
+        from backend.pipeline.enricher import enrich_sub_visuals
+        design_data = None
+        design_path = proj_dir / "design.json"
+        if design_path.is_file():
+            try:
+                with open(design_path, "r", encoding="utf-8") as _df:
+                    design_data = json.load(_df)
+            except Exception:
+                design_data = None
+        candidate, enrich_notes = enrich_sub_visuals(
+            candidate, design_tokens=design_data, video_format=video_format
+        )
+        if enrich_notes:
+            auto_fixed.extend(enrich_notes)
+    except Exception as e:
+        logger.warning(f"save_visuals: enrich_sub_visuals failed: {e}")
+
     is_valid, normalized, error_msg = validate_sub_visuals(
         candidate, target_duration, video_format=video_format)
     if not is_valid:

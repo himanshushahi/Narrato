@@ -1152,16 +1152,25 @@ def migrate_legacy_cut_to_composition(cut: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: float, tolerance: float = 0.1,
-                         video_format: str = "landscape") -> Tuple[bool, List[Dict[str, Any]], str]:
+                         video_format: str = "landscape", auto_enrich: bool = False,
+                         design_tokens: Dict[str, Any] | None = None) -> Tuple[bool, List[Dict[str, Any]], str]:
     """
     Validates a list of AST sub-visuals, ensuring their durations sum up to the
     target_duration, and normalizes transitions onto valid enums.
 
     video_format selects the LayerBox px→% reference grid
     (landscape 1920x1080, portrait 1080x1920, square 1080x1080).
+    auto_enrich: whether to apply deterministic enricher middleware beforehand.
 
     Returns: (is_valid, normalized_sub_visuals, error_message)
     """
+    if auto_enrich and isinstance(sub_visuals, list):
+        try:
+            from backend.pipeline.enricher import enrich_sub_visuals
+            sub_visuals, _ = enrich_sub_visuals(sub_visuals, design_tokens=design_tokens, video_format=video_format)
+        except Exception as e:
+            logger.warning(f"validate_sub_visuals auto_enrich error: {e}")
+
     if not isinstance(sub_visuals, list):
         return False, _dummy_visual(target_duration), (
             f"INVALID_SUB_VISUALS_TYPE: sub_visuals must be a JSON array of "
