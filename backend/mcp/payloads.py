@@ -2343,6 +2343,25 @@ def save_visuals_payload(project_id: str, section_type: str,
     _cuts = _copy.deepcopy(candidate)
     candidate = _cuts
     auto_fixed: list = []
+
+    # Phase -1: Compile high-level macro-archetype cuts into complete AST
+    try:
+        from backend.pipeline.archetypes import compile_cut
+        design_data = None
+        design_path = proj_dir / "design.json"
+        if design_path.is_file():
+            try:
+                with open(design_path, "r", encoding="utf-8") as _df:
+                    design_data = json.load(_df)
+            except Exception:
+                design_data = None
+        for _idx, _c in enumerate(_cuts):
+            if isinstance(_c, dict) and "archetype" in _c:
+                arch_name = _c.get("archetype")
+                _cuts[_idx] = compile_cut(_c, design_tokens=design_data, video_format=video_format)
+                auto_fixed.append(f"cut#{_idx}: compiled macro-archetype '{arch_name}' into multi-layer AST")
+    except Exception as e:
+        logger.warning(f"save_visuals: archetype compilation failed: {e}")
     for _idx, _cut in enumerate(_cuts):
         if not isinstance(_cut, dict):
             continue

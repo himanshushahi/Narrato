@@ -1001,6 +1001,29 @@ def list_skills() -> dict:
 
 
 @mcp.tool()
+def get_archetypes(category: str = "") -> dict:
+    """Catalog of 25 broadcast motion graphics macro-archetypes.
+
+    Archetypes allow 1-shot authoring of broadcast-grade cuts without manual coordinate math:
+    - Typography & Hooks: kinetic_punch, quote_statement, lexicon_definition
+    - Data & Metrics: data_surge, split_bar_comparison, donut_distribution, financial_trendline, timeline_descent
+    - Forensics & Tech: dossier_breakdown, evidence_document, terminal_code_log, cctv_surveillance, evidence_pinboard
+    - Comparison & Geography: versus_clash, pros_cons_matrix, geopolitical_route, territory_heatmap
+    - Cinematic Media: cinematic_scrim, split_screen_multicam, device_mockup_phone, device_mockup_browser, archival_filmstrip
+    - Drama & Conclusion: philosophical_dilemma, scorecard_verdict, cinematic_outro_cta
+    """
+    try:
+        from backend.pipeline.archetypes import get_archetype_catalog
+        catalog = get_archetype_catalog()
+        if category:
+            cat_clean = category.strip().lower()
+            catalog = [c for c in catalog if cat_clean in c.get("category", "").lower()]
+        return {"ok": True, "count": len(catalog), "archetypes": catalog}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool()
 def get_skill(skill_name: str, language: str = "hi", video_format: str = "landscape",
               section: str = "", brief: bool = False, project_id: str = "") -> dict:
     """**FOR MCP EXTERNAL AGENT ONLY.** Get the full markdown guide for one skill (e.g. scriptwriter,
@@ -2816,6 +2839,9 @@ _TOOL_CATALOG = [
     {"name": "list_skills", "group": "skills/read",
      "blurb": "Writing/visual guide catalogue",
      "keywords": "list skills catalogue guides"},
+    {"name": "get_archetypes", "group": "skills/read",
+     "blurb": "Catalog of 25 broadcast motion graphics macro-archetypes",
+     "keywords": "archetypes catalog templates motion graphics visual layouts"},
     {"name": "append_skill_learning", "group": "skills/write",
      "blurb": "Log persistent learnings to skill LEARNINGS.md",
      "keywords": "learning log pattern failure observation improve"},

@@ -1164,6 +1164,20 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
 
     Returns: (is_valid, normalized_sub_visuals, error_message)
     """
+    # Phase -1: Archetype compilation (compile high-level archetype payloads into full AST)
+    if isinstance(sub_visuals, list):
+        try:
+            from backend.pipeline.archetypes import compile_cut
+            compiled_list = []
+            for item in sub_visuals:
+                if isinstance(item, dict) and "archetype" in item:
+                    compiled_list.append(compile_cut(item, design_tokens=design_tokens, video_format=video_format))
+                else:
+                    compiled_list.append(item)
+            sub_visuals = compiled_list
+        except Exception as e:
+            logger.warning(f"validate_sub_visuals: archetype compilation failed: {e}")
+
     if auto_enrich and isinstance(sub_visuals, list):
         try:
             from backend.pipeline.enricher import enrich_sub_visuals

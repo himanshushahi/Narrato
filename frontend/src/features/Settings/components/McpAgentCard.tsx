@@ -45,6 +45,7 @@ const TOOL_GROUPS: { title: string; tools: { name: string; blurb: string }[] }[]
       { name: 'get_transcription', blurb: 'Read word-level transcription & segments (section-scoped or global)' },
 
       { name: 'list_skills', blurb: 'Writing/visual guide catalogue' },
+      { name: 'get_archetypes', blurb: 'Catalog of 25 broadcast motion graphics macro-archetypes for 1-shot authoring' },
       { name: 'get_skill', blurb: 'Full guide markdown — or brief=true map / section="..." chunk for big skills' },
       { name: 'get_stage_skills', blurb: 'One-call starter pack per stage (satisfies skill gate)' },
       { name: 'append_skill_learning', blurb: 'Log persistent learnings and quality fixes to skill LEARNINGS.md' },

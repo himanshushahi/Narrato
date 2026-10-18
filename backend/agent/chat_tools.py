@@ -55,6 +55,8 @@ def get_chat_tools_schema() -> List[Dict[str, Any]]:
         _func_def("list_projects", "List all projects (id, name, status, language).", {}, []),
         _func_def("project_status", "Full project row + per-stage task states.", {"project_id": _PID}, []),
         _func_def("list_skills", "List writing/visual guide skills.", {}, []),
+        _func_def("get_archetypes", "Catalog of 25 broadcast motion graphics macro-archetypes for 1-shot authoring.",
+                  {"category": _STR}, []),
         _func_def("get_skill", "Full markdown guide for one skill; brief=true for section map, section='...' for one part, section='learnings' for past session observations.",
                   {"skill_name": _STR, "language": _STR, "video_format": _STR, "section": _STR,
                    "brief": _BOOL, "project_id": _PID}, ["skill_name"]),
@@ -502,6 +504,8 @@ def _dispatch(tool_name: str, args: dict, default_project_id: str, cancel_event=
         return S.project_status(args.get("project_id", "") or default_project_id)
     if tool_name == "list_skills":
         return S.list_skills()
+    if tool_name == "get_archetypes":
+        return S.get_archetypes(category=args.get("category", "") or "")
     if tool_name == "get_skill":
         return S.get_skill(args.get("skill_name", ""), language=args.get("language", "hi"),
                            video_format=args.get("video_format", "landscape"),

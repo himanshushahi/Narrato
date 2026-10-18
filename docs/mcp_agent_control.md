@@ -76,6 +76,7 @@ Key rule: **save paths are shared, not duplicated.** `save_script_payload` / `sa
 | `get_transcription` | Read word-level transcription & segments (section-scoped or global) |
 
 | `list_skills` / `get_skill` | All 18 writing/visual guides (scriptwriter, visual-director-core, declarative-ast, …). Big skills are ~50KB: `brief=true` returns a section map first, `section="..."` (fuzzy title/subhead/number) pulls one part — never read a whole 50KB skill when a section will do |
+| `get_archetypes` | Catalog of 25 broadcast motion graphics macro-archetypes for 1-shot authoring (category filtering: typography, data_finance, forensics_tech, comparison_geo, cinematic_mockups, drama_conclusion) |
 | `get_stage_skills` | One-call starter pack per stage (script/design/visuals); satisfies the skill gate |
 | `append_skill_learning` | Append-only learning observation to a skill's LEARNINGS.md (edge cases, failure modes, patterns) |
 | `probe_cut` / `probe_scene` / `probe_asset` | Read-only inspectors: one cut / one section / one media layer (timing, file truth) |

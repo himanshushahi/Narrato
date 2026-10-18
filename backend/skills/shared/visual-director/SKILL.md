@@ -216,6 +216,62 @@ See `declarative-ast` §7 for full AST skeletons. Pick by narrative beat:
 
 ---
 
+## 7.5. The 25-Archetype Studio Library (1-Shot Authoring)
+
+Instead of manually assembling 5–7 complex layers from scratch, you can author cuts using **Macro-Archetypes**. The pipeline's Archetype Compiler (`backend/pipeline/archetypes.py`) automatically expands them into broadcast-grade multi-layer AST trees, styled dynamically by `design.json`.
+
+### How to Author an Archetype Cut
+In your `sub_visuals` array, simply specify `"archetype"` and `"params"`:
+```json
+{
+  "duration": 5.0,
+  "archetype": "data_surge",
+  "params": {
+    "target_number": 4200000000,
+    "prefix": "$",
+    "unit": "BILLION",
+    "label": "TOTAL CAPITAL DRAINED",
+    "trend": "down"
+  }
+}
+```
+
+### The 25 Studio Archetypes Quick-Index
+
+| Category | Archetype | Best For / Spoken Beat | Key Params |
+|---|---|---|---|
+| **1. Typography & Hooks** | `kinetic_punch` | Shock revelation, opening hook (0–3s), thesis statement | `headline`, `accent_word`, `accent_box` |
+| | `word_matrix` | Fast multi-word ideas, keyword cloud, brainstorm | `words` (list), `active_index`, `speed` |
+| | `editorial_quote` | Pull-quotes, testimony, news statements, bold claims | `quote_text`, `author`, `publication` |
+| **2. Data & Metrics** | `data_surge` | Huge single KPI reveal ($4.2B, +840%), milestone numbers | `target_number`, `prefix`, `unit`, `label`, `trend` |
+| | `trend_trajectory` | Time-series collapse or rally, historical market growth | `data_points`, `line_color`, `x_labels`, `metric_label` |
+| | `split_metric_card` | Comparing two vital metrics (revenue vs profit, valuation vs cost) | `metric_a`, `metric_b` |
+| | `financial_breakdown` | Capital allocation, budget distribution, portfolio donut | `slices` (label, value), `center_stat` |
+| | `comparative_bars` | Ranking top 3–5 players, market share, benchmark race | `bars` (label, value), `highlight_index` |
+| **3. Forensics & Tech** | `evidence_document` | Leaked PDFs, court filings, confidential reports with marker highlight | `doc_title`, `stamp`, `highlight_text`, `file_type` |
+| | `forensic_dossier` | Suspect/figure profile, criminal/business history, bio | `subject_name`, `role`, `status_tag`, `specs` |
+| | `system_architecture` | Tech stacks, backend pipelines, laundering flow, microservices | `nodes`, `connections`, `active_flow` |
+| | `code_terminal` | Dev exploits, hacker terminals, smart contract bugs, logs | `filename`, `code_lines`, `highlight_line` |
+| | `timeline_milestones` | Chronological chain of events leading up to crisis/breakthrough | `events` (year, title, desc), `active_step` |
+| | `network_graph` | Conspiracy nodes, ownership structures, entity interconnects | `nodes`, `edges`, `focal_node` |
+| **4. Comparison & Geography** | `versus_battle` | Two competing rivals/ideas facing off (Apple vs Google, Bull vs Bear) | `entity_left`, `entity_right`, `vs_tag` |
+| | `map_flight_path` | Geopolitics, travel path, supply chain route, military movement | `origin`, `destination`, `waypoints`, `label` |
+| | `before_after_split` | Transformation showcase (past vs present, deregulation impact) | `left_label`, `right_label`, `left_media`, `right_media` |
+| | `quadrant_matrix` | 2x2 competitive landscape, Gartner-style magic quadrant | `x_axis`, `y_axis`, `quadrants`, `hero_entity` |
+| **5. Cinematic Media & Mockups** | `split_screen_dialogue` | Dual camera feeds, interview comparisons, two events side-by-side | `panel_left`, `panel_right` |
+| | `device_mockup_phone` | Mobile leaks, WhatsApp/Telegram chats, viral tweets, SMS alerts | `app_type`, `sender`, `message_text`, `amount` |
+| | `device_mockup_browser` | Etherscan transactions, news website articles, database portals | `url_bar`, `page_headline`, `highlight_pill` |
+| | `archival_filmstrip` | Historical flashbacks, retro archives, origins, vintage newsreels | `media_query`, `year_stamp`, `caption` |
+| **6. Drama & Conclusion** | `philosophical_dilemma` | Ethical climax, open question, future ramifications | `question_text`, `symbol_name` |
+| | `scorecard_verdict` | Summarizing key takeaways, final grade, guilty/innocent verdict | `items` (3 takeaways), `final_verdict` |
+| | `cinematic_outro_cta` | Outro, subscribe prompt, next video teaser, social handles | `channel_name`, `call_to_action`, `next_topic_teaser` |
+
+> [!TIP]
+> Use the MCP tool `get_archetypes(category="...")` to query detailed slot definitions, parameter schemas, and preview descriptions during generation.
+
+
+---
+
 ## 8. Visual Variety Checklist Per Scene
 
 Before submitting a scene's sub-visuals, verify:
