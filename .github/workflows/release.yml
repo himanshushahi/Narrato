@@ -1,0 +1,117 @@
+name: Release (Windows Standalone & Installer)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release Tag (e.g. v1.2.0)'
+        required: true
+        default: 'v1.2.0'
+      draft:
+        description: 'Save as draft release'
+        required: false
+        type: boolean
+        default: false
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build Narrato Windows Setup Installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install NSIS Compiler
+        run: choco install nsis -y
+
+      - name: Install Python Dependencies (CPU)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-cpu.txt
+          pip install pyinstaller pytest pytest-asyncio typeguard
+
+      - name: Run Test Suite Verification
+        run: |
+          pytest -q --tb=short
+
+      - name: Download Verified Media Binaries
+        run: |
+          python download_binaries.py
+
+      - name: Install Frontend Dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build Vite App, Remotion & Render Script
+        working-directory: frontend
+        run: |
+          npm run build
+          npm run build:remotion
+          npm run build:render
+
+      - name: Build Standalone Executable & NSIS Installer
+        run: |
+          powershell -ExecutionPolicy Bypass -File ./build.ps1
+
+      - name: Verify Installer & Generate Checksum
+        shell: powershell
+        run: |
+          $Installer = "installer\Narrato_Setup.exe"
+          if (!(Test-Path $Installer)) {
+            Write-Error "Narrato_Setup.exe was not created in installer folder!"
+            exit 1
+          }
+          $Hash = (Get-FileHash -Path $Installer -Algorithm SHA256).Hash
+          "$Hash  Narrato_Setup.exe" | Out-File -Encoding utf8 "installer\Narrato_Setup.exe.sha256"
+          Write-Host "Generated SHA256 Checksum: $Hash"
+
+      - name: Determine Release Tag
+        id: get_tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.get_tag.outputs.tag }}
+          name: Narrato ${{ steps.get_tag.outputs.tag }} - Local AI Studio
+          draft: ${{ github.event.inputs.draft || false }}
+          prerelease: ${{ github.event.inputs.prerelease || false }}
+          generate_release_notes: true
+          files: |
+            installer/Narrato_Setup.exe
+            installer/Narrato_Setup.exe.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

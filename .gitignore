@@ -5,10 +5,12 @@ dist/
 
 # Python
 .venv/
+.venv*/
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
+.pytest_cache/
 
 # Binaries & Executables
 bin/
@@ -19,41 +21,38 @@ build/
 models/
 .dev_data/
 assets/
+gpu_runtime/
+spike_gpu/
 
 # Frontend builds
+frontend/dist/
 frontend/dist-remotion/
 frontend/dist-render/
+.remotion/
 
-# Build variants, agent workspace & throwaway prototypes
-.venv*/
-.pytest_cache/
-gpu_runtime/
-.hermes/
-spike_gpu/
-.remotion
-
-# Project Specific (Temporary/Generated data)
+# Temporary / Generated data
 temp/
 storage/
 logs/
 exports/
+webview_data/
+installer/RELEASE_NOTES_TEMP.md
+installer/*.sha256
 
+# Agent workspace & throwaway prototypes
+.hermes/
 
 # OS generated files
 .DS_Store
 Thumbs.db
 
-# Environments
+# Environments & Local Secrets
 .env
 .env.*
+*.local
 
 # IDEs and Editors
 .vscode/
 .idea/
 *.swp
-
-frontend\dist-remotion
-
-# pywebview browser cache
-webview_data/
-frontend\dist-remotion
+*.swo
