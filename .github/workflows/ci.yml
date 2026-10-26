@@ -45,6 +45,10 @@ jobs:
           pip install -r requirements-cpu.txt
           pip install pytest pytest-asyncio typeguard
 
+      - name: Initialize SQLite Schema
+        run: |
+          python -c "from backend.database.db import init_db; init_db()"
+
       - name: Run Pytest Suite
         run: |
           pytest -v --tb=short
