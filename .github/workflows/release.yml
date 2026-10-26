@@ -1,9 +1,6 @@
 name: Release (Windows Standalone & Installer)
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       tag_name:
@@ -40,6 +37,9 @@ jobs:
         with:
           python-version: "3.12"
           cache: "pip"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
 
       - name: Set up Node.js 20
         uses: actions/setup-node@v4

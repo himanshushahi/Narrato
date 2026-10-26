@@ -33,8 +33,10 @@ if (!(Test-Path $VenvPath)) {
     $DevVenvPython = Join-Path $RootFolder ".venv\Scripts\python.exe"
     if (Test-Path $DevVenvPython) {
         & $DevVenvPython -m venv $VenvPath
-    } else {
+    } elseif (Get-Command uv -ErrorAction SilentlyContinue) {
         uv venv --python 3.14 $VenvPath
+    } else {
+        python -m venv $VenvPath
     }
     if (!(Test-Path $VenvActivate)) {
         Write-Error "[ERROR] Failed to create virtual environment. Ensure Python is in your PATH."
