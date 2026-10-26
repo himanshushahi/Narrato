@@ -56,3 +56,9 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# Media renders & artifacts
+*.mp4
+.hyperframes/
+launch_video/.hyperframes/
+launch_video/
